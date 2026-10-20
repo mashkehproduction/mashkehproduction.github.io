@@ -11,8 +11,8 @@ async function play(t){
  if(!t)return;
  if(t.driveId){
   audio.pause();
-  if(current?.id!==t.id){$('#driveFrame').src='https://drive.google.com/file/d/'+t.driveId+'/preview';}
-  current=t;$('#driveFrame').title='Play '+t.title;$('#driveOpen').href='https://drive.google.com/file/d/'+t.driveId+'/view';$('#driveDownload').href=t.url;
+  if(current?.id!==t.id){activateDrive(t);}
+  current=t;$('#driveFrame').title='Play '+t.title;$('#driveDownload').href=t.url;
   $('#drivePlayer').hidden=false;document.body.classList.add('drive-active');
  }else{
   $('#drivePlayer').hidden=true;$('#driveFrame').removeAttribute('src');document.body.classList.remove('drive-active');
@@ -37,3 +37,29 @@ $('#add').onclick=()=>$('#uploadDialog').showModal();$('#closeDialog').onclick=(
 $('#uploadForm').onsubmit=async e=>{e.preventDefault();const file=$('#file').files[0];if(!file)return;const button=e.submitter;button.disabled=true;button.textContent='Saving…';try{await dbReady;const t={id:crypto.randomUUID(),title:$('#title').value.trim(),artist:$('#artist').value.trim(),genre:$('#genre').value,occasion:$('#occasion').value,style:$('#style').value.trim(),color:'#6d7b55',filename:file.name,blob:file,demo:false};if(!t.title||!t.artist)throw Error('Enter a title and artist.');await new Promise((res,rej)=>{const tx=db.transaction('mixes','readwrite');tx.objectStore('mixes').add(t);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});tracks.unshift({...t,url:URL.createObjectURL(file)});view='local';resetFilters();$('#search').value='';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view==='local'));render();$('#uploadDialog').close();e.target.reset();toast('Mix saved on this device.');$('#library').scrollIntoView({behavior:'smooth'})}catch(err){toast(err.message||'Unable to save. Your device storage may be full.')}finally{button.disabled=false;button.textContent='Add to my library'}};render();
 
 $('#closePlayer').onclick=()=>{$('#driveFrame').removeAttribute('src');$('#drivePlayer').hidden=true;document.body.classList.remove('drive-active');current=null;$('#nowTitle').textContent='Choose your soundtrack';$('#nowArtist').textContent='Mashkeh Production';render()};
+
+// Prepare one likely selection, never the whole audio library.
+let warmFrame=null,warmId=null,warmTimer;
+function prepareDrive(t){
+ if(!t?.driveId||t.id===current?.id||t.id===warmId||navigator.connection?.saveData)return;
+ warmFrame?.remove();warmId=t.id;warmFrame=document.createElement('iframe');
+ warmFrame.title='Preparing music player';warmFrame.setAttribute('aria-hidden','true');warmFrame.tabIndex=-1;
+ warmFrame.style.cssText='position:fixed;left:-10000px;top:0;width:800px;height:135px;visibility:hidden;pointer-events:none';
+ warmFrame.src='https://drive.google.com/file/d/'+t.driveId+'/preview';$('#drivePlayer').append(warmFrame);
+}
+function activateDrive(t){
+ clearTimeout(warmTimer);
+ if(warmId===t.id&&warmFrame){
+  const ready=warmFrame;warmFrame=null;warmId=null;
+  $('#driveFrame').remove();ready.removeAttribute('style');ready.removeAttribute('aria-hidden');ready.removeAttribute('tabindex');ready.id='driveFrame';ready.allow='autoplay';
+ }else $('#driveFrame').src='https://drive.google.com/file/d/'+t.driveId+'/preview';
+}
+function anticipate(e){
+ const button=e.target.closest('[data-play]');if(!button)return;
+ clearTimeout(warmTimer);const t=tracks.find(t=>t.id===button.dataset.play);
+ warmTimer=setTimeout(()=>prepareDrive(t),200);
+}
+$('#grid').addEventListener('pointerover',anticipate);
+$('#grid').addEventListener('focusin',anticipate);
+$('#heroPlay').addEventListener('pointerenter',()=>prepareDrive(catalog[0]));
+warmTimer=setTimeout(()=>prepareDrive(catalog[0]),800);
